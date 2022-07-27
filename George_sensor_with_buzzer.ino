@@ -36,7 +36,7 @@ const uint8_t LICKER_MEASUREMENTS = 40;
 // reward parameters (in ms)
 const uint16_t PUMP_INFUSION = 100; 
 const uint16_t PUMP_WITHDRAWAL = 50; 
-const uint16_t BUZZER_INTERVAL = 10;
+const uint16_t BUZZER_INTERVAL = 250;
 
 uint32_t loop_time;
 uint32_t buzzer_time;
