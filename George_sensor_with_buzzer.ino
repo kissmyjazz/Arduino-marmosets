@@ -34,8 +34,8 @@ const uint16_t SETUP_INTERVAL = 250; // ms
 const uint16_t LOOP_INTERVAL = 5; // ms Specifies how frequently the licker is read
 const uint8_t LICKER_MEASUREMENTS = 40;
 // reward parameters (in ms)
-const uint16_t PUMP_INFUSION = 100; 
-const uint16_t PUMP_WITHDRAWAL = 50; 
+const uint16_t PUMP_INFUSION = 1000; 
+const uint16_t PUMP_WITHDRAWAL = 2000; 
 const uint16_t BUZZER_INTERVAL = 250;
 
 uint32_t loop_time;
@@ -123,13 +123,18 @@ void waiting() {
 }
 
 void buzzer() {
+  uint32_t t;
+
   if (state != prior_state) {   // If we are entering the state, do initialization stuff
      prior_state = state;
-  }
+       }
+  t = millis();
   digitalWrite(Buzzer, HIGH);
-  state = PUMP;
-  pump_time = millis();
-  
+  if (it_is_time(t, buzzer_time, BUZZER_INTERVAL)) {
+    digitalWrite(Buzzer, LOW);  
+    state = PUMP;
+    pump_time = millis();
+  }  
 }
   
 void pump() {
@@ -141,10 +146,6 @@ void pump() {
   }
   t = millis();
   stepper.rotate(FDEGREES);
-  
-  if (it_is_time(t, buzzer_time, BUZZER_INTERVAL)) {
-    digitalWrite(Buzzer, LOW);  
-  }
   
   if (it_is_time(t, pump_time, PUMP_INFUSION)) {
     stepper.rotate(-BDEGREES); 
