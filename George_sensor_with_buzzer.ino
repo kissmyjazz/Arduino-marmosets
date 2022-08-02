@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <A4988.h>
 #include <movingAvg.h>
+#include <Bounce2.h> // library to debounce the push button
 
 // using a 200-step motor (most common)
 #define MOTOR_STEPS 200
@@ -16,19 +17,20 @@ A4988 stepper(MOTOR_STEPS, DIR, STEP, MS1, MS2, MS3);
 // configure the speed of the pump
 #define RPM 36
 #define MICROSTEPS 1
-#define FDEGREES 320 // how many steps to rotate in a forward (infusion) direction 
-#define BDEGREES 160 // how many steps to rotate in a backward (withdrawal) direction 
+#define FDEGREES 400 // how many steps to rotate in a forward (infusion) direction 
+#define BDEGREES 150 // how many steps to rotate in a backward (withdrawal) direction 
 
-const int Lick = 7;    // pushbutton connected to digital pin 7
-const int Pushbut = 6;    // pushbutton connected to digital pin 6
-const int Switch = 5;    // pushbutton connected to digital pin 5
-const int REWARDLED = 4;    // pushbutton connected to digital pin 4
-const int TOUCHLED = 3;    // pushbutton connected to digital pin 3
-int Enable = 2;    // pushbutton connected to digital pin 2
-int Pushval = 0;      // variable to store the read value
-int Switchval = 0;      // variable to store the read value
-int Lickval = 0;      // variable to store the read value
-const int Buzzer = 12;     //buzzer pushbutton conected to digital pin 12
+const uint8_t Lick = 7;    // pushbutton connected to digital pin 7
+const uint8_t Pushbut = 6;    // pushbutton connected to digital pin 6
+const uint8_t Switch = 5;    // pushbutton connected to digital pin 5
+const uint8_t REWARDLED = 4;    // pushbutton connected to digital pin 4
+const uint8_t TOUCHLED = 3;    // pushbutton connected to digital pin 3
+const uint8_t Enable = 2;    // pushbutton connected to digital pin 2
+const uint8_t Buzzer = 12;     //buzzer pushbutton conected to digital pin 12
+volatile unsigned int Pushval = 0;      // variable to store the read value
+volatile unsigned int Switchval = 0;      // variable to store the read value
+volatile unsigned int Lickval = 0;      // variable to store the read value
+
 
 const uint16_t SETUP_INTERVAL = 250; // ms
 const uint16_t LOOP_INTERVAL = 5; // ms Specifies how frequently the licker is read
@@ -38,23 +40,26 @@ const uint16_t PUMP_INFUSION = 1000;
 const uint16_t PUMP_WITHDRAWAL = 2000; 
 const uint16_t BUZZER_INTERVAL = 250;
 
-uint32_t loop_time;
-uint32_t buzzer_time;
-uint32_t yellow_time; 
-uint32_t pump_time;  
+volatile uint32_t loop_time;
+volatile uint32_t buzzer_time;
+volatile uint32_t yellow_time; 
+volatile uint32_t pumpf_time; 
+volatile uint32_t pumpb_time;
 
 // threshold for a minimum deviation of sensor reading to signal that licking has occured
 float threshold;
 const uint8_t min_threshold = 5;
 // mean baseline value of the sensor
 float avg;
+Bounce button = Bounce(); // Instantiate a Bounce object
 
 // defines possible states
 enum states {
   NONE, // NONE state is just for setup
   WAITING,
   BUZZER,
-  PUMP
+  PUMPF, // PUMP forward rotation state
+  PUMPB  // PUMP backward rotation state
 };
 
 states prior_state, state; // Global variables to store the prior and current states
@@ -86,12 +91,14 @@ float getStdDev(int* vals, float avg, int arrayCount) {
 void waiting() {
   if (state != prior_state) {   // If we are entering the state, do initialization stuff
      prior_state = state;
+     loop_time = millis();
   }
   uint32_t t;
   uint16_t res;
   float deviation;
   
-  Pushval = digitalRead(Pushbut);   // read the input pin
+  button.update();
+  Pushval = button.read();
   Switchval = digitalRead(Switch);   // read the input pin
   Lickval = digitalRead(Lick);   // read the input pin
     
@@ -102,8 +109,7 @@ void waiting() {
     loop_time = t;
   }
       
-  if (Pushval == HIGH || (deviation > threshold)) { 
-    buzzer_time = millis();
+  if ((Pushval == HIGH) || (deviation > threshold)) { 
     state = BUZZER;
   }
   
@@ -124,34 +130,48 @@ void waiting() {
 
 void buzzer() {
   uint32_t t;
-
-  if (state != prior_state) {   // If we are entering the state, do initialization stuff
-     prior_state = state;
-       }
   t = millis();
-  digitalWrite(Buzzer, HIGH);
+ 
+  if (state != prior_state) {   // If we are entering the state, do initialization stuff
+     prior_state = state; 
+     buzzer_time = millis();
+     digitalWrite(Buzzer, HIGH);
+  }
+ 
   if (it_is_time(t, buzzer_time, BUZZER_INTERVAL)) {
     digitalWrite(Buzzer, LOW);  
-    state = PUMP;
-    pump_time = millis();
+    state = PUMPF;
   }  
 }
   
-void pump() {
+void pumpf() {
   uint32_t t;
+  t = millis(); 
+  
   if (state != prior_state) {   // If we are entering the state, do initialization stuff
      prior_state = state;
      digitalWrite(TOUCHLED, HIGH);
-     digitalWrite(Enable, LOW);  
-  }
-  t = millis();
-  stepper.rotate(FDEGREES);
-  
-  if (it_is_time(t, pump_time, PUMP_INFUSION)) {
-    stepper.rotate(-BDEGREES); 
+     digitalWrite(Enable, LOW); 
+     stepper.rotate(FDEGREES);
+     pumpf_time = millis();
   }
   
-  if (it_is_time(t, pump_time, (PUMP_INFUSION + PUMP_WITHDRAWAL))) {
+  if (it_is_time(t, pumpf_time, PUMP_INFUSION)) {
+    state = PUMPB; 
+  }
+}
+
+void pumpb() {
+  uint32_t t;
+  t = millis(); 
+  
+  if (state != prior_state) {   // If we are entering the state, do initialization stuff
+     prior_state = state;
+     stepper.rotate(-BDEGREES);
+     pumpb_time = millis();
+  }
+   
+  if (it_is_time(t, pumpb_time, PUMP_WITHDRAWAL)) {
      digitalWrite(TOUCHLED, LOW);
      digitalWrite(Enable, HIGH);
      state = WAITING; 
@@ -162,8 +182,10 @@ void setup() {
   // Set target motor RPM to 1RPM and microstepping to 1 (full step mode)
   stepper.begin(RPM, MICROSTEPS);
   stepper.enable();
-  
-  pinMode(Pushbut, INPUT);  // sets the digital pin 6 as input
+
+  button.attach(Pushbut,INPUT); // Attach the debouncer to a pin with INPUT_PULLUP mode
+  button.interval(10); // Use a debounce interval of 25 milliseconds
+ 
   pinMode(Lick, INPUT);  // sets the digital pin 7 as input
   pinMode(Switch, INPUT);  // sets the digital pin 5 as input
   pinMode(REWARDLED, OUTPUT);  // sets the digital pin 4 as output
@@ -175,10 +197,8 @@ void setup() {
   digitalWrite(Enable, HIGH);
 
   Serial.begin(115200);
-  loop_time = millis();
 
   // take baseline sensor readings
-  uint32_t t;
   uint16_t res;
   float sd;
   delay(SETUP_INTERVAL);
@@ -209,8 +229,11 @@ void loop() {
     case BUZZER:
       buzzer();
       break;
-    case PUMP:
-      pump();
+    case PUMPF:
+      pumpf();
+      break;
+    case PUMPB:
+      pumpb();
       break;
   }
 }
