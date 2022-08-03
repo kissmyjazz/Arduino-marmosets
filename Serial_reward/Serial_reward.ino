@@ -26,7 +26,7 @@ const uint8_t Switch = 5;    // toggle switch above red push button connected to
 const uint8_t REWARDLED = 4;    // pushbutton connected to digital pin 4
 const uint8_t TOUCHLED = 3;    // pushbutton connected to digital pin 3
 const uint8_t Enable = 2;    // enables pump, buzzer, and sensor
-const uint8_t Buzzer = 12;     //buzzer pushbutton conected to digital pin 12
+const uint8_t Buzzer = 12;     // buzzer pushbutton conected to digital pin 12
 unsigned int Pushval = 0;      // red push button
 unsigned int Switchval = 0;      // toggle switch above red push button
 
@@ -34,7 +34,7 @@ const uint16_t SETUP_INTERVAL = 250; // ms
 const uint16_t LOOP_INTERVAL = 5; // ms Specifies how frequently the licker is read
 const uint8_t LICKER_MEASUREMENTS = 30;
 // reward parameters (in ms)
-const uint16_t PUMP_INFUSION = 3000; 
+const uint16_t PUMP_INFUSION = 2000; 
 const uint16_t PUMP_WITHDRAWAL = 2500; 
 const uint16_t BUZZER_INTERVAL = 1000;
 
@@ -42,6 +42,11 @@ uint32_t loop_time;
 uint32_t buzzer_time;
 uint32_t pumpf_time; 
 uint32_t pumpb_time;
+uint32_t lick_time;
+bool reward;
+String command = "";
+bool licked; // a global variable to report if lick has occured
+bool licked_wait; // a global variable to report that a set amount of time has elapsed from the recorded lick
 
 // threshold for a minimum deviation of sensor reading to signal that licking has occured
 float threshold;
@@ -85,22 +90,28 @@ float getStdDev(int* vals, float avg, int arrayCount) {
   return stdDev;
 }
 
+bool parse_command() {
+  return command.equals("reward");
+}  
+
 void waiting() {
-    uint16_t res;
-    float deviation;      
-    res = analogRead(A0);
-    deviation = abs(res - avg);
     Switchval = digitalRead(Switch); // reads the state of the toggle switch above red push button
     button.update();
+
+    // receive serial communication from Psychopy
+    if (Serial.available()) {
+      command = Serial.readStringUntil('\r');
+      command.trim();
+      reward = parse_command();
+    }
+    
     if (Switchval == HIGH) { // toggle switch turned to the right
       if (state != prior_state) {   // If we are entering the state, do initialization stuff
          prior_state = state;
          digitalWrite(Enable, LOW);
-         loop_time = millis();
       }
    
-      if (button.fell() || (deviation > threshold)) { 
-         deviation = 0;
+      if (button.fell() || (reward)) { 
          state = BUZZER;
       }
   } 
@@ -130,18 +141,39 @@ void buzzer() {
   
 void pumpf() {
   uint32_t t;
+  uint16_t res;
+  float deviation;  
   if (state != prior_state) {   // If we are entering the state, do initialization stuff
      prior_state = state;
-//     digitalWrite(Enable, LOW); 
      stepper.rotate(FDEGREES);
      delay(10);
      pumpf_time = millis();
-     state = PUMPB;
+     licked = false;
+     licked_wait = false;
   }
-
-  t = millis(); 
-  if (it_is_time(t, pumpf_time, PUMP_INFUSION)) {
-     state = PUMPB; 
+  button.update();
+  t = millis();
+  // the state advances to PUMPB only marmoset has licked 
+  res = analogRead(A0); 
+  deviation = abs(res - avg);
+  if ( (deviation > threshold) && !licked ) {
+    lick_time = millis(); 
+    licked = true;
+    Serial.print("licked");
+    Serial.print("\r\n"); 
+  }
+  if (it_is_time(t, lick_time, 1000)) {
+    licked_wait = true;
+  }
+  
+  if( (it_is_time(t, pumpf_time, PUMP_INFUSION)) && licked_wait ) {
+    state = PUMPB;
+  }
+  // pressing the red push button also advances to the next state and send command to Psychopy to terminate the training session
+  if (button.fell()) {
+    Serial.print("terminate");
+    Serial.print("\r\n"); 
+    state = PUMPB;
   }
 }
 
@@ -181,6 +213,10 @@ void setup() {
   digitalWrite(TOUCHLED, LOW);
   digitalWrite(Enable, LOW);
   Serial.begin(115200);
+
+  reward = false;
+  licked = false;
+  licked_wait = false;
 
   // take baseline sensor readings
   uint16_t res;
