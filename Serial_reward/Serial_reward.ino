@@ -95,23 +95,23 @@ bool parse_command() {
 }  
 
 void waiting() {
+    if (state != prior_state) {   // If we are entering the state, do initialization stuff
+       prior_state = state;
+       command = "";
+       digitalWrite(Enable, LOW);
+    }
     Switchval = digitalRead(Switch); // reads the state of the toggle switch above red push button
     button.update();
 
     // receive serial communication from Psychopy
-    if (Serial.available()) {
+    if (Serial.available() > 0) {
       command = Serial.readStringUntil('\r');
       command.trim();
       reward = parse_command();
     }
     
     if (Switchval == HIGH) { // toggle switch turned to the right
-      if (state != prior_state) {   // If we are entering the state, do initialization stuff
-         prior_state = state;
-         digitalWrite(Enable, LOW);
-      }
-   
-      if (button.fell() || (reward)) { 
+       if (button.fell() || (reward)) { 
          state = BUZZER;
       }
   } 
@@ -158,21 +158,18 @@ void pumpf() {
   deviation = abs(res - avg);
   if ( (deviation > threshold) && !licked ) {
     lick_time = millis(); 
+    Serial.print("licked");  
     licked = true;
-    Serial.print("licked");
-    Serial.print("\r\n"); 
   }
-  if (it_is_time(t, lick_time, 1000)) {
+  if( (it_is_time(t, lick_time, 1000)) && licked ) {
     licked_wait = true;
-  }
-  
+  } 
   if( (it_is_time(t, pumpf_time, PUMP_INFUSION)) && licked_wait ) {
     state = PUMPB;
   }
   // pressing the red push button also advances to the next state and send command to Psychopy to terminate the training session
   if (button.fell()) {
     Serial.print("terminate");
-    Serial.print("\r\n"); 
     state = PUMPB;
   }
 }
