@@ -30,13 +30,14 @@ const uint8_t Buzzer = 12;     // buzzer pushbutton conected to digital pin 12
 unsigned int Pushval = 0;      // red push button
 unsigned int Switchval = 0;      // toggle switch above red push button
 
-const uint16_t SETUP_INTERVAL = 250; // ms
+const uint16_t SETUP_INTERVAL = 50; // ms period between readings of successive licker values
 const uint16_t LOOP_INTERVAL = 5; // ms Specifies how frequently the licker is read
 const uint8_t LICKER_MEASUREMENTS = 30;
 // reward parameters (in ms)
 const uint16_t PUMP_INFUSION = 2000; 
 const uint16_t PUMP_WITHDRAWAL = 2500; 
 const uint16_t BUZZER_INTERVAL = 1000;
+const uint16_t LICKING_PERIOD = 2000;
 
 uint32_t loop_time;
 uint32_t buzzer_time;
@@ -98,6 +99,7 @@ void waiting() {
     if (state != prior_state) {   // If we are entering the state, do initialization stuff
        prior_state = state;
        command = "";
+       reward = false;
        digitalWrite(Enable, LOW);
     }
     Switchval = digitalRead(Switch); // reads the state of the toggle switch above red push button
@@ -156,12 +158,12 @@ void pumpf() {
   // the state advances to PUMPB only marmoset has licked 
   res = analogRead(A0); 
   deviation = abs(res - avg);
-  if ( (deviation > threshold) && !licked ) {
-    lick_time = millis(); 
-    Serial.print("licked");  
+  if ( (deviation > threshold) && !licked ) { 
+    Serial.println("licked");  
     licked = true;
+    lick_time = millis();
   }
-  if( (it_is_time(t, lick_time, 1000)) && licked ) {
+  if( (it_is_time(t, lick_time, LICKING_PERIOD)) && licked ) {
     licked_wait = true;
   } 
   if( (it_is_time(t, pumpf_time, PUMP_INFUSION)) && licked_wait ) {
@@ -169,7 +171,7 @@ void pumpf() {
   }
   // pressing the red push button also advances to the next state and send command to Psychopy to terminate the training session
   if (button.fell()) {
-    Serial.print("terminate");
+    Serial.println("terminate");
     state = PUMPB;
   }
 }
@@ -228,10 +230,6 @@ void setup() {
   }
   avg = lickerMean.getAvg();
   sd = getStdDev(lickerMean.getReadings(), avg, LICKER_MEASUREMENTS);
-  Serial.print("Average is: ");
-  Serial.println(avg); 
-  Serial.print("Standard deviation is: ");
-  Serial.println(sd); 
   threshold = 5 * sd;
   threshold = max(threshold, min_threshold);
   prior_state = NONE;
