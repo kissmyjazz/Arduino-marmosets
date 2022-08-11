@@ -45,6 +45,7 @@ uint32_t pumpf_time;
 uint32_t pumpb_time;
 uint32_t lick_time;
 bool reward;
+bool waiting_btn; // signals that reward was given manually in WAITING phase
 String command = "";
 bool licked; // a global variable to report if lick has occured
 bool licked_wait; // a global variable to report that a set amount of time has elapsed from the recorded lick
@@ -100,6 +101,7 @@ void waiting() {
        prior_state = state;
        command = "";
        reward = false;
+       waiting_btn = false;
        digitalWrite(Enable, LOW);
     }
     Switchval = digitalRead(Switch); // reads the state of the toggle switch above red push button
@@ -113,7 +115,12 @@ void waiting() {
     }
     
     if (Switchval == HIGH) { // toggle switch turned to the right
-       if (button.fell() || (reward)) { 
+       if (button.fell()) { 
+          waiting_btn = true; 
+          Serial.println("button");
+       }
+       if (waiting_btn || (reward)) { 
+         waiting_btn = false;
          state = BUZZER;
       }
   } 
